@@ -1,0 +1,112 @@
+---
+- name: nong_wordpress
+  hosts: server
+  remote_user: root
+  gather_facts: False
+  vars:
+   ansible_password: "redhat"
+  tasks:
+  - name: install packages
+    yum:
+     name: 
+       - httpd
+       - mariadb
+       - mariadb-server
+       - php
+       - php-common
+       - php-mysql
+       - php-gd
+       - php-xml
+       - php-mbstring
+       - php-mcrypt
+       - php-xmlrpc
+       - unzip
+       - wget
+       - python-pip
+     state: latest
+  - name: install PyMYSQL
+    pip:
+      name: PyMySQL
+  - name: systemd enable service
+    systemd:
+       name: "{{ item }}"
+       state: started
+       enabled: yes
+    loop:
+      - httpd
+      - mariadb
+  - name: enable http from firewall 
+    firewalld:
+     service: http
+     state: enabled
+     permanent: yes
+     immediate: true  
+  - name: change db user pass
+    mysql_user:
+      name: root
+      password: "abc"
+      login_user: root
+      login_password: abc
+  - name: Handle the error
+    block: 
+    - name: Copy Database dump file
+      copy: 
+        src: dump.sql
+        dest: /tmp
+    - name: Call MySQL Script
+      mysql_db:
+        name: mysql
+        login_user: root
+        login_password: abc
+        state: import
+        target: /tmp/dump.sql
+    rescue:
+       - debug:
+           msg: "I found some error and I know it's already run"
+  - name: download and  unarchive tar
+    unarchive:
+      src: https://wordpress.org/wordpress-5.0.tar.gz
+      remote_src: yes
+      dest: /var/www/html/
+  - name: change file owner
+    file:
+      path: /var/www/html/wordpress
+      recurse: yes
+      owner: apache
+      group: apache
+  - name: chang file mod
+    file:
+      path: /var/www/html/wordpress
+      recurse: yes
+      owner: root
+      group: root
+      mode: '755'
+  - name: create a directory 
+    file: 
+     path: /var/www/html/wordpress/wp-content/uploads
+     state: directory
+  - name: set owner
+    file: 
+     path: /var/www/html/wordpress/wp-content/uploads
+     recurse: yes
+     owner: apache
+  - name: handle move error
+    block:
+     - name: rename file
+       file: 
+         src: /var/www/html/wordpress/wp-config-sample.php
+         path: /var/www/html/wordpress/wp-config.php
+         state: hard
+    rescue:
+       - debug:
+            msg: "file doesn't exist"
+  - name: edit file
+    lineinfile:
+      path: /var/www/html/wordpress/wp-config.php
+      line: "define({{ item.var }},{{ item.name}});"
+      regexp: ^define\({{ item.var }}
+    loop:
+      - { var: "\'DB_NAME\'", name: "\'wordpress\'" }
+      - { var: "\'DB_USER\'", name: "\'ansible\'" }
+      - { var: "\'DB_PASSWORD\'", name: "\'mypassword\'" }
+      - { var: "\'DB_HOST\'", name: "\'localhost\'" } 
